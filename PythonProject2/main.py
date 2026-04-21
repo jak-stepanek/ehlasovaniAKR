@@ -1,9 +1,7 @@
-import hashlib
 import time
-import random
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import hashes, serialization
-
+from cryptography.hazmat.primitives import hashes
+import secrets
 
 
 
@@ -61,12 +59,12 @@ def spustit():
         volba = input("Vyberte akci: ")
 
         if volba == "1":
-            token = f"{random.randint(1000, 9999)}"
+            token = f"{secrets.token_hex(3)}"
             stav_tokenu[token] = False
             print(f">> Váš token: {token}")
 
         elif volba == "2":
-            t = input("Token: ");
+            t = input("Token: ")
             k = input("Kandidát: ")
             if t in stav_tokenu and not stav_tokenu[t]:
                 cas = time.time()
