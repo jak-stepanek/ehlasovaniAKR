@@ -9,8 +9,8 @@ from cryptography.hazmat.primitives import hashes
 
 def inicializace_systemu():
     priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pub = priv.public_key()
-    return priv, pub
+    ver = priv.public_key()
+    return priv, ver
 
 
 def zasifrovat_hlas(text_hlasu, verejny_klic):
@@ -19,6 +19,11 @@ def zasifrovat_hlas(text_hlasu, verejny_klic):
         padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
     )
 
+def desifrovat_hlas(sifrovany_hlas, soukromy_klic):
+    return soukromy_klic.decrypt(
+        sifrovany_hlas,
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+    ).decode()
 
 def vypocitat_hash_db(db):
     # Pro kontrolu integrity zahashujeme celou databázi jako řetězec
@@ -26,7 +31,7 @@ def vypocitat_hash_db(db):
 
 
 # --- PROMĚNNÉ SYSTÉMU ---
-priv_klic, pub_klic = inicializace_systemu()
+priv_klic, ver_klic = inicializace_systemu()
 databaze_hlasu = []  # List of dicts: {"data": encrypted_bytes}
 stav_tokenu = {}  # Token: Použit (True/False)
 referencni_hash = ""  # Hash uložený v okamžiku uzavření voleb
@@ -37,29 +42,48 @@ def spustit():
     while True:
         print("\n--- volební systém ---")
         print(
-            "1. Registrace \n2. Hlasovat \n3. Uzavřít a uložit hash \n4. útok \n5. Ověřit integritu \n6. Konec")
+            "1. Registrace \n2. Hlasovat \n3. Uzavřít hlasování a uložit hash \n4. útok \n5. Ověřit integritu \n6. Konec")
         volba = input("Vyberte akci: ")
 
         if volba == "1":
             token = secrets.token_hex(3)
             stav_tokenu[token] = False
-            print(f">> Váš token: {token}")
+            print(f"Token: {token}")
 
         elif volba == "2":
             t = input("Token: ")
             k = input("Kandidát: ")
             if t in stav_tokenu and not stav_tokenu[t]:
-                sifra = zasifrovat_hlas(k, pub_klic)
-                databaze_hlasu.append({"data": sifra})
-                stav_tokenu[t] = True
-                print(">> Hlas úspěšně uložen do databáze.")
+                sifra = zasifrovat_hlas(k, ver_klic)
+                kontrolni_hash_odeslany = hashlib.sha256(sifra).hexdigest()
+                print("Šifra a kontrolní hash odeslány")
+                # Server přepočítá hash přijatých dat
+                hash_overeni = hashlib.sha256(sifra).hexdigest()
+
+                if hash_overeni == kontrolni_hash_odeslany:
+                    print("Data dorazila v pořádku.")
+                    databaze_hlasu.append({"data": sifra})
+                    stav_tokenu[t] = True
+                else:
+                    print("Data byla cestou poškozena. Hlas nebude uložen!")
             else:
-                print(">> CHYBA: Neplatný token.")
+                print("Neplatný nebo použitý token.")
 
         elif volba == "3":
             referencni_hash = vypocitat_hash_db(databaze_hlasu)
-            print(f">> Volby uzavřeny. Referenční hash integrity: {referencni_hash}")
+            print("Volby uzavřeny, hash vypočítán a uložen.")
+            print("...Probíhá dešifrování hlasů...")
+            vysledky = {}
+            for zaznam in databaze_hlasu:
+                try:
+                    kandidat = desifrovat_hlas(zaznam["data"], priv_klic)
+                    vysledky[kandidat] = vysledky.get(kandidat, 0) + 1
+                except:
+                    print("Chyba při dešifrování jednoho z hlasů (možná poškozená data).")
 
+            print("\n--- Výsledky ---")
+            for jmeno, pocet in vysledky.items():
+                print(f"{jmeno}: {pocet} hlas(ů)")
         elif volba == "4":
             if not databaze_hlasu:
                 print(">> Databáze je prázdná, není co měnit.")
@@ -69,11 +93,11 @@ def spustit():
             puvodni_data = bytearray(databaze_hlasu[index]["data"])
             puvodni_data[0] ^= 0xFF  # Změna prvního bajtu (bitový flip)
             databaze_hlasu[index]["data"] = bytes(puvodni_data)
-            print(f"!! MANIPULACE: Data v záznamu č. {index + 1} byla tajně změněna útočníkem.")
+            print(f"Data v záznamu č. {index + 1} byla změněna.")
 
         elif volba == "5":
             if not referencni_hash:
-                print(">> Nejdříve uzavřete volby , aby se vytvořil hash k porovnání.")
+                print("Nejdříve uzavřete volby , aby se vytvořil hash k porovnání.")
                 continue
 
             aktualni_hash = vypocitat_hash_db(databaze_hlasu)
