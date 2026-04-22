@@ -79,7 +79,8 @@ def spustit():
                     kandidat = desifrovat_hlas(zaznam["data"], priv_klic)
                     vysledky[kandidat] = vysledky.get(kandidat, 0) + 1
                 except:
-                    print("Chyba při dešifrování jednoho z hlasů (možná poškozená data).")
+                    print("Chyba při dešifrování jednoho z hlasů (poškozená data).")
+                    continue
 
             print("\n--- Výsledky ---")
             for jmeno, pocet in vysledky.items():
